@@ -1,41 +1,51 @@
 /**
- * Vercel build script — runs entirely in Node.js to avoid shell path issues.
+ * Vercel build script — Cross-platform, reliable build runner.
  * Steps:
- *   1. Run prisma generate (uses schema from server/prisma/schema.prisma)
- *   2. Run vite build (outputs to client/dist)
+ *   1. Run `prisma generate` with schema in `server/prisma/schema.prisma`
+ *   2. Run `vite build` from `client/` directory
  */
 
-const { execFileSync } = require('child_process');
+const { execSync } = require('child_process');
 const path = require('path');
 
 const root = path.resolve(__dirname, '..');
-const node = process.execPath;
 
-function run(label, cmd, args, cwd) {
-  console.log(`\n▶ ${label}`);
-  console.log(`  $ ${cmd} ${args.join(' ')}  (cwd: ${cwd})`);
-  execFileSync(cmd, args, { cwd, stdio: 'inherit' });
-  console.log(`✓ ${label} done`);
+function run(label, cmd, cwd) {
+  console.log(`\n▶ [${new Date().toISOString()}] ${label}`);
+  console.log(`  $ ${cmd}  (cwd: ${cwd})`);
+  try {
+    execSync(cmd, {
+      cwd,
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        PRISMA_GENERATE_DATAPROXY: 'false',
+      },
+    });
+    console.log(`✓ ${label} succeeded`);
+  } catch (err) {
+    console.error(`\n❌ Error during "${label}":`, err.message);
+    throw err;
+  }
 }
 
-// Step 1 — generate Prisma client
-run(
-  'prisma generate',
-  node,
-  [
-    path.join(root, 'node_modules', 'prisma', 'build', 'index.js'),
-    'generate',
-    '--schema', path.join(root, 'server', 'prisma', 'schema.prisma'),
-  ],
-  root
-);
+try {
+  // ── Step 1: Generate Prisma Client ──────────────────────────────────────────
+  run(
+    'prisma generate',
+    'npx prisma generate --schema=server/prisma/schema.prisma',
+    root
+  );
 
-// Step 2 — Vite build (runs from client/ dir so vite.config.ts resolves correctly)
-run(
-  'vite build',
-  node,
-  [path.join(root, 'node_modules', 'vite', 'bin', 'vite.js'), 'build'],
-  path.join(root, 'client')
-);
+  // ── Step 2: Build Vite Frontend ─────────────────────────────────────────────
+  run(
+    'vite build',
+    'npx vite build',
+    path.join(root, 'client')
+  );
 
-console.log('\n✅ Vercel build complete → client/dist ready');
+  console.log('\n✨ ✅ Vercel build completed successfully! client/dist is ready for deployment.\n');
+} catch (error) {
+  console.error('\n🚨 Build failed with error:', error);
+  process.exit(1);
+}
