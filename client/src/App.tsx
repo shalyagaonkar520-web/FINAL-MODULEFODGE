@@ -4,6 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { Navbar } from './components/Navbar';
 import { LandingPage } from './pages/LandingPage';
 import { LoginPage } from './pages/LoginPage';
+import { SignUpPage } from './pages/SignUpPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { MarketplacePage } from './pages/MarketplacePage';
 import { ModuleDetailsPage } from './pages/ModuleDetailsPage';
@@ -54,7 +55,11 @@ export const App: React.FC = () => {
   }, [checkAuth]);
 
   const isPublicRoute =
-    location.pathname === '/' || location.pathname === '/login';
+    location.pathname === '/' ||
+    location.pathname === '/login' ||
+    location.pathname === '/signin' ||
+    location.pathname === '/signup' ||
+    location.pathname === '/register';
   const isBuilderRoute = location.pathname.startsWith('/builder/');
   const isWorkspaceRoute = location.pathname.includes('/workspace');
   const isInviteRoute =
@@ -115,12 +120,15 @@ export const App: React.FC = () => {
     );
   }
 
-  // ── Public routes (landing + login) ──────────────────────────────────────
+  // ── Public routes (landing + auth) ───────────────────────────────────────
   if (isPublicRoute) {
     return (
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/signin" element={<LoginPage />} />
+        <Route path="/signup" element={<SignUpPage />} />
+        <Route path="/register" element={<SignUpPage />} />
       </Routes>
     );
   }

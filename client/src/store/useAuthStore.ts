@@ -1,21 +1,16 @@
 import { create } from 'zustand';
+import {
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signInWithPopup,
+  signOut,
+  updateProfile,
+  onAuthStateChanged,
+  sendPasswordResetEmail,
+  User as FirebaseUser,
+} from 'firebase/auth';
+import { auth, googleProvider } from '../lib/firebase';
 import { User } from '../types';
-
-// ---------------------------------------------------------------------------
-// Supabase is an optional peer — imported lazily so the build doesn't break
-// when VITE_SUPABASE_URL is not set (local dev without Supabase).
-// ---------------------------------------------------------------------------
-let supabaseClient: any = null;
-
-async function getSupabase() {
-  if (supabaseClient) return supabaseClient;
-  const url = import.meta.env.VITE_SUPABASE_URL;
-  const key = import.meta.env.VITE_SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  const { createClient } = await import('@supabase/supabase-js');
-  supabaseClient = createClient(url, key);
-  return supabaseClient;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,9 +19,13 @@ const STORAGE_KEY = 'moduleforge_user';
 
 function persist(user: User | null) {
   if (user) {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
+    } catch {}
   } else {
-    localStorage.removeItem(STORAGE_KEY);
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {}
   }
 }
 
@@ -39,8 +38,39 @@ function readPersisted(): User | null {
   }
 }
 
+function mapFirebaseUser(fbUser: FirebaseUser): User {
+  return {
+    id: fbUser.uid,
+    email: fbUser.email ?? '',
+    name: fbUser.displayName ?? fbUser.email?.split('@')[0] ?? 'User',
+    avatarUrl: fbUser.photoURL ?? undefined,
+  };
+}
+
+function formatFirebaseError(error: any): string {
+  const code = error?.code;
+  switch (code) {
+    case 'auth/invalid-email':
+      return 'Invalid email address format.';
+    case 'auth/user-disabled':
+      return 'This account has been disabled.';
+    case 'auth/user-not-found':
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'Invalid email or password.';
+    case 'auth/email-already-in-use':
+      return 'An account with this email already exists.';
+    case 'auth/weak-password':
+      return 'Password should be at least 6 characters.';
+    case 'auth/popup-closed-by-user':
+      return 'Sign-in popup was closed before finishing.';
+    default:
+      return error?.message || 'Authentication failed. Please try again.';
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Store
+// Store Interface
 // ---------------------------------------------------------------------------
 interface AuthState {
   user: User | null;
@@ -51,129 +81,165 @@ interface AuthState {
 
   checkAuth: () => Promise<void>;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogle: () => Promise<{ success: boolean; error?: string }>;
   register: (name: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
 }
 
-const isLocalAuthFallback = !(
-  Boolean(import.meta.env.VITE_SUPABASE_URL) && Boolean(import.meta.env.VITE_SUPABASE_ANON_KEY)
-);
+const initialSavedUser = readPersisted();
 
 export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  isAuthenticated: false,
-  isLoading: true,
+  user: initialSavedUser,
+  isAuthenticated: Boolean(initialSavedUser),
+  isLoading: false,
   error: null,
-  isDevMode: isLocalAuthFallback,
+  isDevMode: false,
 
-  // ── Restore session on page load ─────────────────────────────────────────
+  // ── Restore session on page load / listen to auth state changes ──────────
   checkAuth: async () => {
-    set({ isLoading: true, error: null });
-
-    const sb = await getSupabase();
-
-    if (sb) {
-      // ── Supabase path ──
-      const { data: { session } } = await sb.auth.getSession();
-      if (session?.user) {
-        const u: User = {
-          id: session.user.id,
-          email: session.user.email ?? '',
-          name: session.user.user_metadata?.name ?? session.user.email,
-          avatarUrl: session.user.user_metadata?.avatar_url,
-        };
-        persist(u);
-        set({ user: u, isAuthenticated: true, isLoading: false });
-        return;
-      }
-      set({ user: null, isAuthenticated: false, isLoading: false });
-      return;
-    }
-
-    // ── No Supabase — restore from localStorage (dev / offline) ──
     const saved = readPersisted();
     if (saved) {
-      set({ user: saved, isAuthenticated: true, isLoading: false });
-      return;
+      set({ user: saved, isAuthenticated: true, isLoading: false, error: null });
     }
 
-    set({ user: null, isAuthenticated: false, isLoading: false });
+    return new Promise<void>((resolve) => {
+      let resolved = false;
+
+      // 1.5s safety fallback so UI is never stuck on spinner
+      const timeout = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          const current = readPersisted();
+          set({
+            user: current,
+            isAuthenticated: Boolean(current),
+            isLoading: false,
+          });
+          resolve();
+        }
+      }, 1500);
+
+      try {
+        const unsubscribe = onAuthStateChanged(
+          auth,
+          (fbUser) => {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              if (fbUser) {
+                const u = mapFirebaseUser(fbUser);
+                persist(u);
+                set({ user: u, isAuthenticated: true, isLoading: false });
+              } else {
+                persist(null);
+                set({ user: null, isAuthenticated: false, isLoading: false });
+              }
+              unsubscribe();
+              resolve();
+            }
+          },
+          (_err) => {
+            if (!resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              const current = readPersisted();
+              set({
+                user: current,
+                isAuthenticated: Boolean(current),
+                isLoading: false,
+              });
+              unsubscribe();
+              resolve();
+            }
+          }
+        );
+      } catch (err) {
+        if (!resolved) {
+          resolved = true;
+          clearTimeout(timeout);
+          set({ isLoading: false });
+          resolve();
+        }
+      }
+    });
   },
 
-  // ── Sign in ──────────────────────────────────────────────────────────────
+  // ── Sign in with Email & Password ─────────────────────────────────────────
   login: async (email: string, password: string) => {
     set({ isLoading: true, error: null });
-    const sb = await getSupabase();
+    try {
+      const cred = await signInWithEmailAndPassword(auth, email, password);
+      const u = mapFirebaseUser(cred.user);
+      persist(u);
+      set({ user: u, isAuthenticated: true, isLoading: false });
+      return { success: true };
+    } catch (err: any) {
+      const msg = formatFirebaseError(err);
+      set({ isLoading: false, error: msg });
+      return { success: false, error: msg };
+    }
+  },
 
-    if (sb) {
-      const { data, error } = await sb.auth.signInWithPassword({ email, password });
-      if (error || !data.user) {
-        const msg = error?.message ?? 'Login failed';
-        set({ isLoading: false, error: msg });
-        return { success: false, error: msg };
+  // ── Sign in with Google Popup ────────────────────────────────────────────
+  loginWithGoogle: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      const u = mapFirebaseUser(cred.user);
+      persist(u);
+      set({ user: u, isAuthenticated: true, isLoading: false });
+      return { success: true };
+    } catch (err: any) {
+      const msg = formatFirebaseError(err);
+      set({ isLoading: false, error: msg });
+      return { success: false, error: msg };
+    }
+  },
+
+  // ── Register with Email & Password ────────────────────────────────────────
+  register: async (name: string, email: string, password: string) => {
+    set({ isLoading: true, error: null });
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      if (name && cred.user) {
+        await updateProfile(cred.user, { displayName: name });
       }
       const u: User = {
-        id: data.user.id,
-        email: data.user.email ?? '',
-        name: data.user.user_metadata?.name ?? data.user.email,
-        avatarUrl: data.user.user_metadata?.avatar_url,
+        id: cred.user.uid,
+        email: cred.user.email ?? email,
+        name: name || cred.user.displayName || email.split('@')[0],
       };
       persist(u);
       set({ user: u, isAuthenticated: true, isLoading: false });
       return { success: true };
+    } catch (err: any) {
+      const msg = formatFirebaseError(err);
+      set({ isLoading: false, error: msg });
+      return { success: false, error: msg };
     }
-
-    // ── Dev fallback when Supabase is not configured ──
-    if (!email || !password) {
-      set({ isLoading: false, error: 'Email and password are required' });
-      return { success: false, error: 'Email and password are required' };
-    }
-    const devUser: User = {
-      id: `local-${Date.now()}`,
-      email,
-      name: email.split('@')[0],
-    };
-    persist(devUser);
-    set({ user: devUser, isAuthenticated: true, isLoading: false });
-    return { success: true };
   },
 
-  // ── Register ─────────────────────────────────────────────────────────────
-  register: async (name: string, email: string, password: string) => {
-    set({ isLoading: true, error: null });
-    const sb = await getSupabase();
-
-    if (sb) {
-      const { data, error } = await sb.auth.signUp({
-        email,
-        password,
-        options: { data: { name } },
-      });
-      if (error) {
-        set({ isLoading: false, error: error.message });
-        return { success: false, error: error.message };
-      }
-      // Supabase may require email confirmation — handle gracefully
-      const u: User | null = data.user
-        ? { id: data.user.id, email: data.user.email ?? '', name }
-        : null;
-      if (u) persist(u);
-      set({ user: u, isAuthenticated: Boolean(u), isLoading: false });
+  // ── Password Reset Email ──────────────────────────────────────────────────
+  resetPassword: async (email: string) => {
+    try {
+      await sendPasswordResetEmail(auth, email);
       return { success: true };
+    } catch (err: any) {
+      const msg = formatFirebaseError(err);
+      return { success: false, error: msg };
     }
-
-    // ── Dev fallback ──
-    const devUser: User = { id: `local-${Date.now()}`, email, name };
-    persist(devUser);
-    set({ user: devUser, isAuthenticated: true, isLoading: false });
-    return { success: true };
   },
 
   // ── Sign out ─────────────────────────────────────────────────────────────
   logout: async () => {
-    const sb = await getSupabase();
-    if (sb) await sb.auth.signOut();
-    persist(null);
-    set({ user: null, isAuthenticated: false, isLoading: false });
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.error('Logout error:', err);
+    } finally {
+      persist(null);
+      set({ user: null, isAuthenticated: false, isLoading: false });
+    }
   },
 }));

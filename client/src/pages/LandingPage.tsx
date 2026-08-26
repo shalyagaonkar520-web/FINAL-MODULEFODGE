@@ -35,18 +35,18 @@ export const LandingPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/login')}
-            className="text-xs font-semibold text-slate-300 hover:text-white transition px-3 py-2"
+            className="text-xs font-semibold text-slate-300 hover:text-white transition px-3 py-2 rounded-lg hover:bg-slate-900"
           >
             Sign In
           </button>
           <button
-            onClick={() => navigate('/modules')}
-            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-lg shadow-indigo-600/30 transition flex items-center gap-2"
+            onClick={() => navigate('/signup')}
+            className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs shadow-lg shadow-indigo-600/30 transition flex items-center gap-2"
           >
-            <span>Launch Platform</span>
+            <span>Sign Up Free</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
