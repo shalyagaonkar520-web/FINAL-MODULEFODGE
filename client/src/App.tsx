@@ -15,6 +15,7 @@ import { AcceptInvitePage } from './pages/AcceptInvitePage';
 import { MyModulesPage } from './pages/MyModulesPage';
 import { MyProjectsPage } from './pages/MyProjectsPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { TeamsPage } from './pages/TeamsPage';
 import { useAuthStore } from './store/useAuthStore';
 import { useProjectStore } from './store/useProjectStore';
 import { FolderGit2, Loader2 } from 'lucide-react';
@@ -154,6 +155,7 @@ export const App: React.FC = () => {
                 path="/projects"
                 element={<MyProjectsPage onOpenCreateProject={() => setIsProjectModalOpen(true)} />}
               />
+              <Route path="/teams" element={<TeamsPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>

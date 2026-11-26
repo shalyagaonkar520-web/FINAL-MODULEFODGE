@@ -12,6 +12,7 @@ import {
   Sparkles,
   Layers,
   Crown,
+  Users,
 } from 'lucide-react';
 import { useAuthStore } from '../store/useAuthStore';
 
@@ -23,6 +24,7 @@ export const Sidebar: React.FC = () => {
     { label: 'Modules', path: '/modules', icon: Boxes },
     { label: 'My Modules', path: '/my-modules', icon: PackageCheck },
     { label: 'My Projects', path: '/projects', icon: FolderGit2 },
+    { label: 'Teams & Tasks', path: '/teams', icon: Users },
     { label: 'Create Module', path: '/modules/create', icon: PlusCircle },
     { label: 'Settings', path: '/settings', icon: Settings },
   ];

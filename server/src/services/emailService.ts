@@ -18,6 +18,29 @@ export interface SendInviteResult {
   error?: string;
 }
 
+export interface SendTaskParams {
+  to: string[];
+  teamName: string;
+  taskTitle: string;
+  taskDescription?: string | null;
+  priority: string;
+  deadline?: Date | null;
+  assignedBy: string;
+  appUrl?: string;
+}
+
+export interface SendTaskResult {
+  success: boolean;
+  delivered: boolean; // true only when a real SMTP/Gmail transport sent it
+  previewUrl?: string;
+  gmailComposeUrl: string;
+  error?: string;
+}
+
+function esc(v: string): string {
+  return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 class EmailService {
   private transporter: nodemailer.Transporter | null = null;
 
@@ -196,6 +219,68 @@ class EmailService {
         inviteLink,
         error: error.message,
       };
+    }
+  }
+
+  public async sendTaskAssignment(params: SendTaskParams): Promise<SendTaskResult> {
+    const { to, teamName, taskTitle, taskDescription, priority, deadline, assignedBy } = params;
+    const baseUrl = params.appUrl || process.env.APP_URL || 'http://localhost:5173';
+    const link = `${baseUrl}/teams`;
+    const deadlineText = deadline
+      ? deadline.toLocaleString('en-IN', { dateStyle: 'full', timeStyle: 'short', timeZone: 'Asia/Kolkata' }) + ' IST'
+      : 'No deadline set';
+
+    const subject = `New task assigned: ${taskTitle} (${teamName})`;
+    const plainBody = `Hello,
+
+${assignedBy} assigned you a task in team "${teamName}".
+
+Task: ${taskTitle}
+${taskDescription ? `Details: ${taskDescription}
+` : ''}Priority: ${priority}
+Deadline: ${deadlineText}
+
+Open ModuleForge to view it: ${link}
+`;
+    const gmailComposeUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(to.join(','))}&su=${encodeURIComponent(subject)}&body=${encodeURIComponent(plainBody)}`;
+
+    const html = `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#0a0a0a;color:#f5f5f5;padding:32px">
+      <div style="max-width:540px;margin:0 auto;background:#171717;border:1px solid #b45309;border-radius:14px;padding:28px">
+        <div style="color:#fbbf24;font:700 12px monospace;letter-spacing:1px">MODULEFORGE &middot; NEW TASK</div>
+        <h2 style="margin:10px 0 4px;color:#fff">${esc(taskTitle)}</h2>
+        <p style="color:#a3a3a3;margin:0 0 18px">${esc(assignedBy)} assigned this to you in <strong style="color:#fde68a">${esc(teamName)}</strong>.</p>
+        ${taskDescription ? `<p style="color:#d4d4d4;white-space:pre-wrap">${esc(taskDescription)}</p>` : ''}
+        <table style="font-size:14px;color:#d4d4d4;margin:16px 0"><tr><td style="color:#a3a3a3;padding-right:12px">Priority</td><td style="text-transform:capitalize">${esc(priority)}</td></tr>
+        <tr><td style="color:#a3a3a3;padding-right:12px">Deadline</td><td style="color:#fbbf24;font-weight:700">${esc(deadlineText)}</td></tr></table>
+        <a href="${esc(link)}" style="display:inline-block;background:#f59e0b;color:#000;text-decoration:none;font-weight:700;padding:11px 22px;border-radius:10px">Open my tasks</a>
+      </div></body></html>`;
+
+    try {
+      if (this.transporter) {
+        await this.transporter.sendMail({
+          from: process.env.SMTP_FROM || `"ModuleForge Team" <${process.env.GMAIL_USER || 'no-reply@moduleforge.io'}>`,
+          to,
+          subject,
+          html,
+          text: plainBody,
+        });
+        return { success: true, delivered: true, gmailComposeUrl };
+      }
+      // No SMTP configured: send to an Ethereal test inbox so the flow can be previewed (NOT delivered to real inboxes).
+      try {
+        const acct = await nodemailer.createTestAccount();
+        const t = nodemailer.createTransport({
+          host: 'smtp.ethereal.email', port: 587, secure: false,
+          auth: { user: acct.user, pass: acct.pass },
+        });
+        const info = await t.sendMail({ from: '"ModuleForge Team" <no-reply@moduleforge.io>', to, subject, html, text: plainBody });
+        return { success: true, delivered: false, previewUrl: nodemailer.getTestMessageUrl(info) || undefined, gmailComposeUrl };
+      } catch {
+        return { success: true, delivered: false, gmailComposeUrl };
+      }
+    } catch (error: any) {
+      console.error('Failed to send task email:', error.message);
+      return { success: false, delivered: false, gmailComposeUrl, error: error.message };
     }
   }
 }
