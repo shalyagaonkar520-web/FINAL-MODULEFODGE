@@ -271,3 +271,53 @@ export interface ValidationResult {
     technologies?: string[];
   };
 }
+
+// ── Teams & Tasks ────────────────────────────────────────────────────────────
+export type TaskStatus = 'todo' | 'in_progress' | 'done';
+export type TaskPriority = 'low' | 'medium' | 'high';
+
+export interface TeamMember {
+  id: string;
+  teamId: string;
+  email: string;
+  name?: string | null;
+}
+
+export interface TaskAssignee {
+  id: string;
+  taskId: string;
+  email: string;
+}
+
+export interface Task {
+  id: string;
+  teamId: string;
+  title: string;
+  description?: string | null;
+  priority: TaskPriority;
+  status: TaskStatus;
+  deadline?: string | null;
+  createdBy?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+  assignees: TaskAssignee[];
+  team?: { id: string; name: string };
+}
+
+export interface Team {
+  id: string;
+  name: string;
+  description?: string | null;
+  ownerEmail: string;
+  ownerName?: string | null;
+  createdAt: string;
+  members: TeamMember[];
+  tasks: Task[];
+}
+
+export interface TaskEmailResult {
+  delivered: boolean;
+  previewUrl?: string;
+  gmailComposeUrl?: string;
+  error?: string;
+}

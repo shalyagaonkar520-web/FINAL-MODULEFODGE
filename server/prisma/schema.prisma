@@ -243,3 +243,60 @@ model GeneratedExport {
   zipPath     String
   createdAt   DateTime @default(now())
 }
+
+// ── Teams & Tasks ────────────────────────────────────────────────────────────
+
+model Team {
+  id          String       @id @default(uuid())
+  name        String
+  description String?
+  ownerEmail  String
+  ownerName   String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  members     TeamMember[]
+  tasks       Task[]
+
+  @@index([ownerEmail])
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  teamId    String
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  email     String   // always stored lowercase
+  name      String?
+  createdAt DateTime @default(now())
+
+  @@unique([teamId, email])
+  @@index([email])
+}
+
+model Task {
+  id          String         @id @default(uuid())
+  teamId      String
+  team        Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  priority    String         @default("medium") // "low" | "medium" | "high"
+  status      String         @default("todo")   // "todo" | "in_progress" | "done"
+  deadline    DateTime?
+  createdBy   String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  completedAt DateTime?
+  assignees   TaskAssignee[]
+
+  @@index([teamId])
+  @@index([deadline])
+}
+
+model TaskAssignee {
+  id     String @id @default(uuid())
+  taskId String
+  task   Task   @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  email  String // always stored lowercase
+
+  @@unique([taskId, email])
+  @@index([email])
+}
